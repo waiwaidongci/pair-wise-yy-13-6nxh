@@ -1,126 +1,193 @@
+import { useMemo, useState } from "react";
 import "./styles.css";
-
-const project = {
-  "sourceNo": 7,
-  "id": "hxyfront-62012",
-  "port": 62012,
-  "title": "纺织染整小样管理",
-  "domain": "纺织染整",
-  "prompt": "我需要一个纺织染整实验室的小样管理前端系统，可以记录面料成分、克重、染料配方、浴比、温度曲线、保温时间、后整理方式、色差值和评审结果。页面需要有小样批次列表、配方比例展示、Lab色差对比、工艺曲线摘要和按客户订单筛选。",
-  "palette": [
-    "#be123c",
-    "#4f46e5",
-    "#16a34a"
-  ],
-  "metrics": [
-    "小样批次",
-    "色差超限",
-    "客户订单",
-    "通过率"
-  ],
-  "filters": [
-    "棉",
-    "涤纶",
-    "锦纶",
-    "混纺"
-  ],
-  "fields": [
-    "面料成分",
-    "克重",
-    "染料配方",
-    "浴比",
-    "保温时间",
-    "色差值"
-  ],
-  "records": [
-    [
-      "LAB-620A",
-      "棉府绸120g",
-      "ΔE 0.84",
-      "评审通过"
-    ],
-    [
-      "LAB-621C",
-      "涤纶针织",
-      "升温曲线偏快",
-      "待复染"
-    ],
-    [
-      "LAB-624B",
-      "混纺斜纹",
-      "后整理柔软剂2%",
-      "客户确认中"
-    ]
-  ]
-};
+import { useDyeLab } from "./useDyeLab";
+import {
+  BatchDetail,
+  BatchForm,
+  BatchList,
+  NetworkBadge,
+  OutboxPanel,
+} from "./components";
 
 function App() {
+  const lab = useDyeLab();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showBatchForm, setShowBatchForm] = useState(false);
+
+  const displayBatches = useMemo(
+    () => Object.values(lab.batches).sort((a, b) => b.createdAt - a.createdAt),
+    [lab.batches],
+  );
+  const selected = selectedId ? lab.batches[selectedId] : null;
+
+  const pendingCount = lab.outbox.filter((i) => i.status === "pending").length;
+  const conflictCount = lab.outbox.filter((i) => i.status === "conflict").length;
+  const failedCount = lab.outbox.filter((i) => i.status === "failed").length;
+
+  const overLimitCount = useMemo(() => {
+    return Object.values(lab.batches).filter((b) => {
+      const latest = [...b.retests]
+        .filter((r) => r.valid)
+        .sort((a, c) => c.recordedAt - a.recordedAt)[0];
+      return latest && latest.deltaE > 1;
+    }).length;
+  }, [lab.batches]);
+
+  const passRate = useMemo(() => {
+    const confirmed = Object.values(lab.batches).flatMap((b) =>
+      b.reviews.filter((r) => r.confirmed),
+    );
+    if (!confirmed.length) return "—";
+    const passed = confirmed.filter((r) => r.result === "passed").length;
+    return `${Math.round((passed / confirmed.length) * 100)}%`;
+  }, [lab.batches]);
+
+  const metrics = [
+    { label: "小样批次", value: displayBatches.length },
+    { label: "待同步续办", value: lab.outbox.length },
+    { label: "色差超限批次", value: overLimitCount },
+    { label: "评审通过率", value: passRate },
+  ];
+
   return (
     <main className="app">
-      <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
-      </section>
+      <header className="hero">
+        <div className="hero-top">
+          <div>
+            <p>hxyfront-62012 · 源提示词 7 · 离线续办</p>
+            <h1>纺织染整小样管理</h1>
+            <span>
+              断网时登记批次、配方版本与复测色差，联网后按版本逐项合并；两边都改过时列清差异，已确认评审结果不可覆盖；
+              配方版本一变，复测与评审立即失效并重新确认；合并失败保留待重试，处理过程全程留痕。
+            </span>
+          </div>
+          <NetworkBadge online={lab.isOnline} />
+        </div>
+        <div className="toolbar">
+          <button
+            className={lab.forceOffline ? "primary" : ""}
+            onClick={() => lab.setForceOffline((v) => !v)}
+          >
+            {lab.forceOffline ? "恢复联网" : "模拟断网"}
+          </button>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={lab.simulateFail}
+              onChange={(e) => lab.setSimulateFail(e.target.checked)}
+            />
+            <span>模拟合并失败</span>
+          </label>
+          <button onClick={lab.simulateRemoteUpdateAction}>模拟他处更新</button>
+          <button className="primary" onClick={lab.syncNow} disabled={!lab.isOnline || lab.syncing}>
+            {lab.syncing ? "同步中…" : "立即同步"}
+          </button>
+        </div>
+      </header>
+
+      {lab.notice && (
+        <div className={`notice ${lab.notice.type}`}>
+          <span>{lab.notice.text}</span>
+          <button className="link" onClick={() => lab.setNotice(null)}>
+            知道了
+          </button>
+        </div>
+      )}
+
+      {!lab.isOnline && (
+        <div className="offline-banner">
+          <strong>离线续办模式：</strong>
+          批次登记、配方修订、复测色差与评审记录仍可正常填写，内容暂存在本机；联网后自动按版本逐项合并。
+          他处已确认的评审结果受保护，不会被离线修订覆盖。
+        </div>
+      )}
 
       <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[28, 6, 14, 91][index] ?? 10}</strong>
+        {metrics.map((m) => (
+          <article key={m.label}>
+            <small>{m.label}</small>
+            <strong>{m.value}</strong>
           </article>
         ))}
       </section>
 
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}分类</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="panel form-panel">
+      <section className="workspace three-col">
+        <aside className="panel list-panel">
           <div className="heading">
             <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
+              <p>小样批次</p>
+              <h2>批次列表</h2>
             </div>
-            <button className="primary">保存记录</button>
+            <button className="primary" onClick={() => setShowBatchForm((v) => !v)}>
+              {showBatchForm ? "收起" : "新增批次"}
+            </button>
           </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
+          {showBatchForm && (
+            <BatchForm
+              onSubmit={(data) => {
+                lab.addBatch(data);
+                setShowBatchForm(false);
+              }}
+            />
+          )}
+          <BatchList
+            batches={displayBatches}
+            outbox={lab.outbox}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        </aside>
+
+        <section className="panel detail-panel">
+          {selected ? (
+            <BatchDetail
+              batch={selected}
+              outbox={lab.outbox}
+              onFormula={(data) => lab.updateFormula(selected.id, data)}
+              onRetest={(deltaE, note) => lab.addRetest(selected.id, { deltaE, note })}
+              onReview={(result) => lab.addReview(selected.id, result)}
+              onConfirm={(reviewId) => lab.confirmReview(selected.id, reviewId)}
+            />
+          ) : (
+            <div className="empty-detail">
+              <h2>选择一个批次</h2>
+              <p>查看配方版本、复测色差、评审结果与处理过程；离线时填写的内容会在此排队，联网后逐项合并。</p>
+            </div>
+          )}
         </section>
+
+        <aside className="panel outbox-panel">
+          <div className="heading">
+            <div>
+              <p>离线续办</p>
+              <h2>
+                续办中心
+                {(pendingCount + conflictCount + failedCount > 0) && (
+                  <span className="heading-count">
+                    {pendingCount} 待同步 · {conflictCount} 冲突 · {failedCount} 待重试
+                  </span>
+                )}
+              </h2>
+            </div>
+          </div>
+          <OutboxPanel
+            outbox={lab.outbox}
+            batches={lab.batches}
+            isOnline={lab.isOnline}
+            onResolve={lab.resolveConflictAction}
+            onDiscard={lab.discardAction}
+            onRetry={lab.retryAction}
+            onSelect={setSelectedId}
+          />
+        </aside>
       </section>
 
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>近期记录</p>
-            <h2>工作台摘要</h2>
-          </div>
-          <button>导出CSV</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      <footer className="footnote">
+        <span>
+          合并规则：按版本逐项合并；同一批次两边都改时列出字段级差异；已确认评审结果受保护不可覆盖；
+          配方版本变更后复测与评审立即失效，需重新复测 / 确认；合并失败保留待重试内容，处理过程留痕于批次。
+        </span>
+      </footer>
     </main>
   );
 }
