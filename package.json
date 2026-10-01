@@ -2,14 +2,23 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 62012",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 62012"
+    "preview": "vite preview --host 0.0.0.0 --port 62012",
+    "typecheck": "tsc --noEmit",
+    "verify:engine": "esbuild scripts/verify-engine.ts --bundle --platform=node --format=esm --outfile=node_modules/.verify-engine.mjs && node node_modules/.verify-engine.mjs",
+    "verify:pipeline": "esbuild scripts/verify-pipeline.ts --bundle --platform=node --format=esm --outfile=node_modules/.verify-pipeline.mjs && node node_modules/.verify-pipeline.mjs",
+    "verify:smoke": "esbuild scripts/smoke.ts --bundle --platform=node --format=cjs --outfile=node_modules/.smoke.cjs --external:jsdom --define:process.env.NODE_ENV='\"test\"' && node node_modules/.smoke.cjs",
+    "verify": "npm run typecheck && npm run verify:engine && npm run verify:pipeline && npm run verify:smoke"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
-    "vite": "^7.0.0",
-    "typescript": "^5.8.3",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^29.1.1"
+  }
 }

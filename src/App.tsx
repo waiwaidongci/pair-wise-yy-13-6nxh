@@ -1,125 +1,76 @@
+import { useState } from "react";
 import "./styles.css";
-
-const project = {
-  "sourceNo": 7,
-  "id": "hxyfront-62012",
-  "port": 62012,
-  "title": "纺织染整小样管理",
-  "domain": "纺织染整",
-  "prompt": "我需要一个纺织染整实验室的小样管理前端系统，可以记录面料成分、克重、染料配方、浴比、温度曲线、保温时间、后整理方式、色差值和评审结果。页面需要有小样批次列表、配方比例展示、Lab色差对比、工艺曲线摘要和按客户订单筛选。",
-  "palette": [
-    "#be123c",
-    "#4f46e5",
-    "#16a34a"
-  ],
-  "metrics": [
-    "小样批次",
-    "色差超限",
-    "客户订单",
-    "通过率"
-  ],
-  "filters": [
-    "棉",
-    "涤纶",
-    "锦纶",
-    "混纺"
-  ],
-  "fields": [
-    "面料成分",
-    "克重",
-    "染料配方",
-    "浴比",
-    "保温时间",
-    "色差值"
-  ],
-  "records": [
-    [
-      "LAB-620A",
-      "棉府绸120g",
-      "ΔE 0.84",
-      "评审通过"
-    ],
-    [
-      "LAB-621C",
-      "涤纶针织",
-      "升温曲线偏快",
-      "待复染"
-    ],
-    [
-      "LAB-624B",
-      "混纺斜纹",
-      "后整理柔软剂2%",
-      "客户确认中"
-    ]
-  ]
-};
+import { useLab } from "./lib/useLab";
+import { StatusBar } from "./components/StatusBar";
+import { EntryForm } from "./components/EntryForm";
+import { OfflineQueue } from "./components/OfflineQueue";
+import { BatchList } from "./components/BatchList";
 
 function App() {
+  const lab = useLab();
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  const [filter, setFilter] = useState("");
+
   return (
     <main className="app">
       <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
+        <p>hxyfront-62012 · 纺织染整小样管理 · 离线续办</p>
+        <h1>小样批次离线登记与按版本合并</h1>
+        <span>
+          断网时记下批次、配方版本与复测色差；网络恢复后按版本逐项合并。同一批次两边都改过则列清差异逐项裁决，
+          已确认的客户评审结果受保护不被盖掉；配方版本一变，复测与评审立即失效并重新确认；合并失败保留待重试，全部处理过程随批次留痕。
+        </span>
       </section>
 
       <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[28, 6, 14, 91][index] ?? 10}</strong>
-          </article>
-        ))}
+        <article>
+          <small>小样批次</small>
+          <strong>{lab.stats.total}</strong>
+        </article>
+        <article>
+          <small>离线待办</small>
+          <strong>{lab.stats.pending}</strong>
+        </article>
+        <article>
+          <small>色差超限（ΔE&gt;1.5）</small>
+          <strong>{lab.stats.overLimit}</strong>
+        </article>
+        <article>
+          <small>客户订单</small>
+          <strong>{lab.stats.orders}</strong>
+        </article>
       </section>
 
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}分类</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
+      <StatusBar lab={lab} />
 
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
+      <section className="workspace offline-workspace">
+        <EntryForm lab={lab} selectedBatchId={selectedId} />
+        <OfflineQueue lab={lab} />
       </section>
 
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>近期记录</p>
-            <h2>工作台摘要</h2>
-          </div>
-          <button>导出CSV</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
+      <section className="panel filter-panel">
+        <label>
+          <span>按客户订单 / 面料 / 批次号筛选</span>
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="如 PO-2401、棉、LAB-620"
+          />
+        </label>
+      </section>
+
+      <BatchList lab={lab} selectedId={selectedId} onSelect={setSelectedId} filter={filter} />
+
+      <section className="panel flow-note">
+        <h2>离线续办处理规则</h2>
+        <ol>
+          <li>断网登记/复测：批次、配方版本、复测 Lab 色差进入离线队列，本地立即可见。</li>
+          <li>网络恢复：先拉取"别处"更新对账——配方版本不同则旧复测、旧评审立即标记失效（历史结论保留留痕）。</li>
+          <li>逐项合并：本地改远端未改取本地，反之取远端；两边都改且不同的字段/色差分量列清差异，逐项裁决后才写入。</li>
+          <li>评审保护：服务端已确认（valid）的客户评审，任何字段合并都不会覆盖。</li>
+          <li>失效重认：复测基于新版本重新提交；评审需客户在线重新确认。</li>
+          <li>失败保留：上送/合并失败的待办原样保留在队列并记录原因，可随时重试；处理过程全部写入批次日志。</li>
+        </ol>
       </section>
     </main>
   );
